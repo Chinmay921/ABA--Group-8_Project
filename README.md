@@ -330,59 +330,131 @@ ABA_Group_8/
 
 ## 9. Setup & Running
 
+> **Pre-trained models are included** in `models/` — you do not need to retrain anything to run the notebook or the simulator.
+
 ### Prerequisites
 
-- Python 3.10+
-- Node.js 18+
+| Tool | Minimum version | Check |
+|---|---|---|
+| Python | 3.10 | `python3 --version` |
+| pip | any recent | `pip --version` |
+| Node.js | 18 | `node --version` |
+| npm | 9 | `npm --version` |
 
-### 1. Clone
+---
+
+### Step 1 — Clone the repository
 
 ```bash
 git clone https://github.com/YOUR_USERNAME/aba-group8-rl-monetary-policy.git
 cd aba-group8-rl-monetary-policy
 ```
 
-### 2. Python environment
+---
+
+### Step 2 — Python environment
+
+We recommend a virtual environment to avoid dependency conflicts:
 
 ```bash
-python3 -m pip install -r requirements.txt
-python3 -m pip install -r simulator/requirements_sim.txt
+# Create and activate a virtual environment (recommended)
+python3 -m venv .venv
+source .venv/bin/activate          # macOS / Linux
+# .venv\Scripts\activate           # Windows
+
+# Install all Python dependencies
+pip install -r requirements.txt
+pip install -r simulator/requirements_sim.txt
 ```
 
-> **Note:** The saved models require NumPy ≥ 2.0. If you get a `numpy._core` import error, run `pip install "numpy>=2.0"`.
+> **Tip:** If you see a `numpy._core` import error when loading the saved models, upgrade NumPy:
+> ```bash
+> pip install "numpy>=2.0"
+> ```
 
-### 3. Retrain (optional — models are included)
+---
 
-```bash
-# Single-country PPO + evaluate vs baselines
-python3 train.py
-
-# Multi-country PPO (US + Canada)
-python3 train_multi_country.py
-```
-
-### 4. Run the main notebook
+### Step 3 — Run the main notebook
 
 ```bash
 jupyter notebook rl_monetary_policy.ipynb
 ```
 
-The notebook covers: data exploration → environment → PPO training → DDPG training → SHAP explainability → policy comparison → real-data backtest.
+The notebook is self-contained and covers end-to-end:
+data exploration → environment calibration → PPO training → DDPG training → policy comparison → real-data backtest → SHAP explainability.
 
-### 5. Run the interactive simulator
+All outputs are pre-rendered so you can read it without re-running any cells.
+
+---
+
+### Step 4 — Run the interactive web simulator
+
+The simulator requires **two terminals running simultaneously**.
+
+**Terminal 1 — start the Python API backend:**
 
 ```bash
-# Terminal 1
 cd simulator
 python3 -m uvicorn api:app --reload --port 8000
+```
 
-# Terminal 2
+You should see:
+```
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+[data]  Loaded 96 monthly rows from us_macro_data_real.csv
+[model] PPO loaded
+[model] DDPG loaded
+```
+
+**Terminal 2 — start the React frontend:**
+
+```bash
 cd simulator/frontend
-npm install   # first time only
+npm install        # first time only — installs React, Recharts, Vite
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+You should see:
+```
+  VITE v5.x.x  ready in ...ms
+  ➜  Local:   http://localhost:3000/
+```
+
+**Open [http://localhost:3000](http://localhost:3000) in your browser.**
+
+The green dot in the top-right of the dashboard confirms the backend is connected. If it shows red, make sure the backend terminal (Terminal 1) is still running.
+
+---
+
+### Step 5 — Retrain (optional — models are already included)
+
+The `models/` directory already contains trained weights. Only run these if you want to experiment with new hyperparameters:
+
+```bash
+# Single-country PPO + evaluate vs baselines
+python3 train.py
+
+# Single-country DDPG
+python3 train_ddpg.py
+
+# Multi-country PPO (US + Canada spillovers)
+python3 train_multi_country.py
+```
+
+Training takes ~5–15 minutes per agent on a modern laptop (CPU).
+
+---
+
+### Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| `ModuleNotFoundError: gymnasium` | Run `pip install -r requirements.txt` inside your venv |
+| `ModuleNotFoundError: fastapi` | Run `pip install -r simulator/requirements_sim.txt` |
+| Backend starts but PPO/DDPG show as unavailable | Check `models/` directory exists and contains `.zip` files |
+| Frontend shows "API Offline" | Ensure Terminal 1 backend is running on port 8000 |
+| `npm: command not found` | Install Node.js 18+ from [nodejs.org](https://nodejs.org) |
+| Port 8000 already in use | Run `lsof -ti:8000 \| xargs kill` then restart the backend |
 
 ---
 
