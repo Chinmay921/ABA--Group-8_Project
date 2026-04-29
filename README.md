@@ -504,20 +504,6 @@ The period was chosen to capture three major episodes: COVID shock (2020), post-
 
 ---
 
-## 12. Team
-
-**Group 8 — DTU Business Analytics, Term 3, 42578 Advanced Business Analytics**
-
-| Name | Contribution |
-|---|---|
-| Chinmay Dongarkar | RL environment design, PPO/DDPG training, simulator backend |
-| [Team Member 2] | Data collection, economic model calibration |
-| [Team Member 3] | SHAP explainability, multi-country extension |
-| [Team Member 4] | Evaluation framework, real-data backtest |
-| [Team Member 5] | Notebook report, visualisations |
-
----
-
 ## References
 
 1. Taylor, J. B. (1993). *Discretion versus policy rules in practice.* Carnegie-Rochester Conference Series on Public Policy, 39, 195–214.
