@@ -14,6 +14,7 @@ Or:
 
 import os
 import pickle
+import random
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -250,7 +251,8 @@ def reset_simulation(req: ResetRequest):
     data_slice = df_global.iloc[idx:].reset_index(drop=True)
 
     sim_env = EconomicEnv(data_slice)
-    obs, _ = sim_env.reset(seed=42)
+    # Option 1 — fresh random seed every session so no two games are alike
+    obs, _ = sim_env.reset(seed=random.randint(0, 999_999))
 
     initial = _obs_to_point(obs, 0.0, 0.0, 0)
     sim_state = {
@@ -292,7 +294,7 @@ def step_simulation(req: StepRequest):
     else:
         action = _get_action(policy, obs)
 
-    new_obs, rew, terminated, truncated, _ = sim_env.step(
+    new_obs, rew, terminated, truncated, info = sim_env.step(
         np.array([action], dtype=np.float32)
     )
     done = bool(terminated or truncated)
@@ -302,6 +304,8 @@ def step_simulation(req: StepRequest):
     sim_state["done"]   = done
 
     pt = _obs_to_point(new_obs, action, float(rew), sim_state["step"])
+    # Option 2 — attach the named shock event (or None) to every step point
+    pt["shock_event"] = info.get("shock_event")
     sim_state["trajectory"].append(pt)
 
     total_reward = sum(p["reward"] for p in sim_state["trajectory"])
@@ -339,13 +343,15 @@ def run_full_episode(req: RunRequest):
 
     while not done:
         action = _get_action(req.policy, obs)
-        obs, rew, terminated, truncated, _ = env.step(
+        obs, rew, terminated, truncated, info = env.step(
             np.array([action], dtype=np.float32)
         )
         done  = bool(terminated or truncated)
         step += 1
         total += float(rew)
-        traj.append(_obs_to_point(obs, action, float(rew), step))
+        pt = _obs_to_point(obs, action, float(rew), step)
+        pt["shock_event"] = info.get("shock_event")
+        traj.append(pt)
 
     return {
         "policy":       req.policy,

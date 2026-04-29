@@ -114,14 +114,143 @@ class EconomicEnv(gym.Env):
     # Supply shocks: negative correlation between inflation and GDP shocks.
     #   SUPPLY_CORR=-0.50 → a cost-push shock raises π and lowers g.
     # Monthly std calibrated as residual variation after AR1 persistence.
-    # Recession shock: 1.5% monthly probability (~1 per 5.5 years).
-    #   Magnitude: historically plausible moderate recession, not COVID.
     # ------------------------------------------------------------------
     SHOCK_STD_PI = 0.12
     SHOCK_STD_G  = 0.22
     SHOCK_STD_U  = 0.07
     SUPPLY_CORR  = -0.50
-    P_RECESSION  = 0.015
+
+    # ------------------------------------------------------------------
+    # Named shock event catalogue
+    # Each event fires with probability `prob` per month (mutually exclusive
+    # draw — at most ONE event fires per step).  Total prob ≈ 15%, so a
+    # named event hits roughly once every 6–7 months on average.
+    #
+    # eps_pi / eps_g / eps_u are additive on top of the background shocks.
+    # Positive eps_pi → inflation rises.  Negative eps_g → GDP falls.
+    # ------------------------------------------------------------------
+    SHOCK_EVENTS = [
+        {
+            "name":        "Oil Price Spike",
+            "emoji":       "🛢️",
+            "description": "Global oil prices surge, raising costs for businesses and consumers.",
+            "type":        "bad",
+            "prob":        0.018,
+            "eps_pi":      +0.60,
+            "eps_g":       -0.40,
+            "eps_u":       +0.20,
+        },
+        {
+            "name":        "Supply Chain Disruption",
+            "emoji":       "🚢",
+            "description": "Port congestion and shipping delays constrain goods supply.",
+            "type":        "bad",
+            "prob":        0.015,
+            "eps_pi":      +0.50,
+            "eps_g":       -0.30,
+            "eps_u":       +0.10,
+        },
+        {
+            "name":        "Banking Sector Stress",
+            "emoji":       "🏦",
+            "description": "Credit conditions tighten as banks reduce lending.",
+            "type":        "bad",
+            "prob":        0.008,
+            "eps_pi":      -0.20,
+            "eps_g":       -1.50,
+            "eps_u":       +1.00,
+        },
+        {
+            "name":        "Geopolitical Shock",
+            "emoji":       "🌍",
+            "description": "International tensions disrupt trade and investor sentiment.",
+            "type":        "bad",
+            "prob":        0.010,
+            "eps_pi":      +0.30,
+            "eps_g":       -0.60,
+            "eps_u":       +0.30,
+        },
+        {
+            "name":        "Consumer Confidence Crash",
+            "emoji":       "📉",
+            "description": "Household spending falls sharply as confidence collapses.",
+            "type":        "bad",
+            "prob":        0.012,
+            "eps_pi":      -0.30,
+            "eps_g":       -0.80,
+            "eps_u":       +0.50,
+        },
+        {
+            "name":        "Housing Market Slowdown",
+            "emoji":       "🏠",
+            "description": "Declining home sales and construction weigh on growth.",
+            "type":        "bad",
+            "prob":        0.015,
+            "eps_pi":      -0.10,
+            "eps_g":       -0.40,
+            "eps_u":       +0.20,
+        },
+        {
+            "name":        "Mild Recession",
+            "emoji":       "📊",
+            "description": "Economic output contracts and unemployment begins to rise.",
+            "type":        "bad",
+            "prob":        0.012,
+            "eps_pi":      -0.20,
+            "eps_g":       -1.80,
+            "eps_u":       +1.20,
+        },
+        {
+            "name":        "Pandemic Shock",
+            "emoji":       "🦠",
+            "description": "A public health emergency forces widespread economic restrictions.",
+            "type":        "bad",
+            "prob":        0.003,
+            "eps_pi":      -0.50,
+            "eps_g":       -3.50,
+            "eps_u":       +4.00,
+        },
+        {
+            "name":        "Strong Jobs Report",
+            "emoji":       "💼",
+            "description": "Unexpectedly strong employment data beats all forecasts.",
+            "type":        "good",
+            "prob":        0.030,
+            "eps_pi":      +0.10,
+            "eps_g":       +0.30,
+            "eps_u":       -0.40,
+        },
+        {
+            "name":        "Tech Sector Boom",
+            "emoji":       "💻",
+            "description": "Strong earnings and investment in technology lift growth.",
+            "type":        "good",
+            "prob":        0.025,
+            "eps_pi":      +0.15,
+            "eps_g":       +0.50,
+            "eps_u":       -0.30,
+        },
+        {
+            "name":        "Commodity Boom",
+            "emoji":       "⛏️",
+            "description": "Rising commodity prices boost resource and export sectors.",
+            "type":        "good",
+            "prob":        0.015,
+            "eps_pi":      +0.40,
+            "eps_g":       +0.20,
+            "eps_u":       -0.10,
+        },
+        {
+            "name":        "Consumer Spending Surge",
+            "emoji":       "🛒",
+            "description": "Retail sales beat expectations as household confidence soars.",
+            "type":        "good",
+            "prob":        0.020,
+            "eps_pi":      +0.20,
+            "eps_g":       +0.45,
+            "eps_u":       -0.25,
+        },
+    ]
 
     # ------------------------------------------------------------------
     # Hard state bounds applied after every step (RL stability)
@@ -255,14 +384,25 @@ class EconomicEnv(gym.Env):
         pi_policy = float(self.W_PI @ hist) + self.NL_PI * rate_change * abs(rate_change)
         g_policy  = float(self.W_G  @ hist) + self.NL_G  * rate_change * abs(rate_change)
 
-        # --- 3. Correlated supply shocks --------------------------------
+        # --- 3. Correlated background supply shocks ----------------------
         eps_pi, eps_g = self.np_random.multivariate_normal([0.0, 0.0], self._shock_cov)
         eps_u         = self.np_random.normal(0.0, self.SHOCK_STD_U)
 
-        # Rare recession shock: GDP contraction + unemployment spike
-        if self.np_random.random() < self.P_RECESSION:
-            eps_g -= float(self.np_random.uniform(1.0, 2.5))
-            eps_u += float(self.np_random.uniform(0.5, 1.5))
+        # --- 3b. Named shock events (at most one per step) ---------------
+        # Categorical draw: iterate through the catalogue summing probabilities.
+        # If the random roll falls inside an event's probability band, it fires.
+        # The remaining probability mass (≈85%) means no named event this month.
+        fired_event = None
+        rand_roll   = float(self.np_random.random())
+        cumprob     = 0.0
+        for evt in self.SHOCK_EVENTS:
+            cumprob += evt["prob"]
+            if rand_roll < cumprob:
+                fired_event = evt
+                eps_pi += evt.get("eps_pi", 0.0)
+                eps_g  += evt.get("eps_g",  0.0)
+                eps_u  += evt.get("eps_u",  0.0)
+                break
 
         # --- 4. AR1 transitions with policy and shocks ------------------
         # IS curve level drag: continuous penalty while rates above neutral.
@@ -318,13 +458,27 @@ class EconomicEnv(gym.Env):
             current_rate, previous_rate,
         )
 
+        # Build shock event summary for the info dict (name + impact numbers)
+        event_info = None
+        if fired_event is not None:
+            event_info = {
+                "name":        fired_event["name"],
+                "emoji":       fired_event["emoji"],
+                "description": fired_event["description"],
+                "type":        fired_event["type"],          # "good" | "bad"
+                "eps_pi":      fired_event.get("eps_pi", 0.0),
+                "eps_g":       fired_event.get("eps_g",  0.0),
+                "eps_u":       fired_event.get("eps_u",  0.0),
+            }
+
         info = {
-            "step":                self.current_step,
-            "inflation":           inflation_next,
-            "unemployment":        unemployment_next,
-            "gdp_growth":          gdp_next,
-            "interest_rate":       current_rate,
+            "step":                 self.current_step,
+            "inflation":            inflation_next,
+            "unemployment":         unemployment_next,
+            "gdp_growth":           gdp_next,
+            "interest_rate":        current_rate,
             "interest_rate_change": rate_change,
+            "shock_event":          event_info,   # None if no event this month
         }
 
         return self._get_obs(), reward, terminated, truncated, info

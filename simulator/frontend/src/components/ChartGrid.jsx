@@ -203,10 +203,78 @@ function StatCard({ label, value, target, unit, icon }) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+// ShockBanner — prominent overlay card when a named event fires
+// ──────────────────────────────────────────────────────────────────────────────
+
+function ShockBanner({ event, onDismiss }) {
+  if (!event) return null
+
+  const isBad = event.type === 'bad'
+
+  // Format impact deltas for the subtitle line
+  const impacts = []
+  if (event.eps_pi) impacts.push(`Inflation ${event.eps_pi > 0 ? '+' : ''}${event.eps_pi.toFixed(1)}pp`)
+  if (event.eps_g)  impacts.push(`GDP ${event.eps_g > 0 ? '+' : ''}${event.eps_g.toFixed(1)}pp`)
+  if (event.eps_u)  impacts.push(`Unemployment ${event.eps_u > 0 ? '+' : ''}${event.eps_u.toFixed(1)}pp`)
+
+  return (
+    <div className={`shock-banner ${isBad ? 'shock-bad' : 'shock-good'}`}>
+      <div className="shock-emoji">{event.emoji}</div>
+      <div className="shock-body">
+        <div className="shock-title">
+          <span className={`shock-badge ${isBad ? 'badge-bad' : 'badge-good'}`}>
+            {isBad ? 'SHOCK EVENT' : 'POSITIVE EVENT'}
+          </span>
+          <strong>{event.name}</strong>
+        </div>
+        <div className="shock-description">{event.description}</div>
+        {impacts.length > 0 && (
+          <div className="shock-impacts">
+            {impacts.map((imp, i) => <span key={i} className="impact-chip">{imp}</span>)}
+          </div>
+        )}
+      </div>
+      <button className="shock-dismiss" onClick={onDismiss}>✕</button>
+    </div>
+  )
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// EventTicker — scrolling log of past shock events (shown below charts)
+// ──────────────────────────────────────────────────────────────────────────────
+
+function EventTicker({ trajectory }) {
+  // Collect all steps that had a shock event (most recent first)
+  const events = trajectory
+    .filter(pt => pt.shock_event)
+    .map(pt => ({ step: pt.step, ...pt.shock_event }))
+    .reverse()
+    .slice(0, 8)   // show at most 8 recent events
+
+  if (events.length === 0) return null
+
+  return (
+    <div className="event-ticker">
+      <span className="ticker-label">📰 NEWS</span>
+      <div className="ticker-items">
+        {events.map((evt, i) => (
+          <span key={i} className={`ticker-item ${evt.type === 'bad' ? 'ticker-bad' : 'ticker-good'}`}>
+            {evt.emoji} <strong>Month {evt.step}</strong>: {evt.name}
+          </span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // Main ChartGrid export
 // ──────────────────────────────────────────────────────────────────────────────
 
-export default function ChartGrid({ trajectory, targets, currentState, totalReward, policy }) {
+export default function ChartGrid({
+  trajectory, targets, currentState, totalReward, policy,
+  currentEvent, onDismissEvent,
+}) {
   const color = POLICY_COLORS[policy] ?? '#a78bfa'
   const step  = trajectory.length - 1
 
@@ -214,6 +282,9 @@ export default function ChartGrid({ trajectory, targets, currentState, totalRewa
 
   return (
     <main className="chart-area">
+
+      {/* ── Live shock event banner ── */}
+      <ShockBanner event={currentEvent} onDismiss={onDismissEvent} />
 
       {/* ── Stats row ── */}
       {currentState && (
@@ -288,6 +359,9 @@ export default function ChartGrid({ trajectory, targets, currentState, totalRewa
             <ActionChart data={trajectory} policyColor={color} />
             <RewardChart data={trajectory} />
           </div>
+
+          {/* ── Past-events news ticker ── */}
+          <EventTicker trajectory={trajectory} />
         </>
       )}
     </main>

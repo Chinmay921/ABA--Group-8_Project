@@ -47,16 +47,19 @@ export default function App() {
   const [backendOk, setBackendOk] = useState(null)  // null=checking, true, false
 
   // Simulation state
-  const [policy,       setPolicy]       = useState('manual')
-  const [startIdx,     setStartIdx]     = useState(0)
-  const [trajectory,   setTrajectory]   = useState([])
-  const [targets,      setTargets]      = useState(DEFAULT_TARGETS)
-  const [isRunning,    setIsRunning]    = useState(false)
-  const [isDone,       setIsDone]       = useState(false)
-  const [isInit,       setIsInit]       = useState(false)
-  const [manualAction, setManualAction] = useState(0.0)
-  const [speed,        setSpeed]        = useState(200)   // ms between auto-steps
-  const [errorMsg,     setErrorMsg]     = useState(null)
+  const [policy,        setPolicy]       = useState('manual')
+  const [startIdx,      setStartIdx]     = useState(0)
+  const [trajectory,    setTrajectory]   = useState([])
+  const [targets,       setTargets]      = useState(DEFAULT_TARGETS)
+  const [isRunning,     setIsRunning]    = useState(false)
+  const [isDone,        setIsDone]       = useState(false)
+  const [isInit,        setIsInit]       = useState(false)
+  const [manualAction,  setManualAction] = useState(0.0)
+  const [speed,         setSpeed]        = useState(200)   // ms between auto-steps
+  const [errorMsg,      setErrorMsg]     = useState(null)
+  // Option 2 — current named shock event (null when none is active)
+  const [currentEvent,  setCurrentEvent] = useState(null)
+  const eventTimerRef = useRef(null)
 
   // Compare tab state
   const [compareResults, setCompareResults] = useState(null)
@@ -79,8 +82,11 @@ export default function App() {
       .catch(() => {})
   }, [])
 
-  // ── Cleanup timer on unmount ──────────────────────────────────────────────
-  useEffect(() => () => { if (runnerRef.current) clearInterval(runnerRef.current) }, [])
+  // ── Cleanup timers on unmount ─────────────────────────────────────────────
+  useEffect(() => () => {
+    if (runnerRef.current)    clearInterval(runnerRef.current)
+    if (eventTimerRef.current) clearTimeout(eventTimerRef.current)
+  }, [])
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -90,11 +96,20 @@ export default function App() {
     isRunningRef.current = false
   }
 
+  /** Show a shock-event banner and auto-dismiss after 5 seconds. */
+  const showEvent = (evt) => {
+    if (!evt) return
+    if (eventTimerRef.current) clearTimeout(eventTimerRef.current)
+    setCurrentEvent(evt)
+    eventTimerRef.current = setTimeout(() => setCurrentEvent(null), 5000)
+  }
+
   // ── Interactive handlers ──────────────────────────────────────────────────
 
   const handleReset = async () => {
     stopRunner()
     setErrorMsg(null)
+    setCurrentEvent(null)
     try {
       const result = await api.resetSim(policy, startIdx)
       setTrajectory([result.state])
@@ -112,6 +127,7 @@ export default function App() {
     try {
       const result = await api.stepSim(manualAction)
       setTrajectory(prev => [...prev, result])
+      showEvent(result.shock_event)
       if (result.done) setIsDone(true)
     } catch (e) {
       setErrorMsg(`Step failed: ${e.message}`)
@@ -131,6 +147,7 @@ export default function App() {
         // For non-manual policies the backend ignores the action value
         const result = await api.stepSim(policy === 'manual' ? manualAction : 0.0)
         setTrajectory(prev => [...prev, result])
+        showEvent(result.shock_event)
         if (result.done) {
           stopRunner()
           setIsDone(true)
@@ -239,6 +256,8 @@ export default function App() {
             currentState={currentState}
             totalReward={totalReward}
             policy={policy}
+            currentEvent={currentEvent}
+            onDismissEvent={() => setCurrentEvent(null)}
           />
         </div>
       )}
