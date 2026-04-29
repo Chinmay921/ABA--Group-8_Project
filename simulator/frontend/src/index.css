@@ -547,6 +547,14 @@ body {
   color: #64748b;
 }
 
+/* Subtitle in comparison chart headers: "mean ± 1σ · 20 episodes" */
+.chart-sub {
+  font-size: 10px;
+  color: #475569;
+  letter-spacing: 0.02em;
+  margin-left: 6px;
+}
+
 .chart-current {
   font-size: 16px;
   font-weight: 800;

@@ -23,19 +23,49 @@ const TARGETS = {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Multi-policy line chart
+// Custom tooltip — hides the ±std band entries, shows only mean lines
+// ──────────────────────────────────────────────────────────────────────────────
+
+function CustomTooltip({ active, payload, label, unit }) {
+  if (!active || !payload || !payload.length) return null
+  const main = payload.filter(
+    e => !e.dataKey.includes('_upper') && !e.dataKey.includes('_lower')
+  )
+  if (!main.length) return null
+  return (
+    <div style={{
+      background: C.tt, border: `1px solid ${C.ttBdr}`,
+      borderRadius: 8, padding: '8px 12px', fontSize: 12,
+    }}>
+      <p style={{ color: '#94a3b8', marginBottom: 4 }}>Month {label}</p>
+      {main.map(e => (
+        <p key={e.dataKey} style={{ color: e.color, margin: '2px 0' }}>
+          {POLICY_LABELS[e.dataKey] ?? e.dataKey}: {e.value?.toFixed(3)}{unit}
+        </p>
+      ))}
+    </div>
+  )
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Multi-policy line chart with ±1 std confidence bands
 // ──────────────────────────────────────────────────────────────────────────────
 
 function CompareChart({ results, dataKey, label, unit = '%' }) {
   const policies = Object.keys(results)
   const maxLen   = Math.max(...policies.map(p => results[p].trajectory.length))
   const target   = TARGETS[dataKey] ?? null
+  const nEp      = results[policies[0]]?.n_episodes ?? 1
 
   const data = Array.from({ length: maxLen }, (_, i) => {
     const pt = { step: i }
     policies.forEach(p => {
       const t = results[p].trajectory
-      if (t[i]) pt[p] = t[i][dataKey]
+      if (t[i]) {
+        pt[p]            = t[i][dataKey]
+        pt[`${p}_upper`] = t[i][`${dataKey}_upper`]
+        pt[`${p}_lower`] = t[i][`${dataKey}_lower`]
+      }
     })
     return pt
   })
@@ -44,6 +74,7 @@ function CompareChart({ results, dataKey, label, unit = '%' }) {
     <div className="compare-chart-card">
       <div className="chart-header">
         <span className="chart-title">{label}</span>
+        <span className="chart-sub">mean ± 1σ · {nEp} episodes</span>
         {target != null && (
           <span className="chart-target-badge">target {target}{unit}</span>
         )}
@@ -53,11 +84,7 @@ function CompareChart({ results, dataKey, label, unit = '%' }) {
           <CartesianGrid strokeDasharray="3 3" stroke={C.grid} />
           <XAxis dataKey="step" stroke={C.axis} tick={{ fontSize: 10, fill: C.axis }} tickLine={false} />
           <YAxis stroke={C.axis} tick={{ fontSize: 10, fill: C.axis }} tickLine={false} />
-          <Tooltip
-            contentStyle={{ background: C.tt, border: `1px solid ${C.ttBdr}`, borderRadius: 8, fontSize: 12 }}
-            labelFormatter={v => `Month ${v}`}
-            formatter={(v, name) => [`${v?.toFixed(3)}${unit}`, POLICY_LABELS[name] ?? name]}
-          />
+          <Tooltip content={<CustomTooltip unit={unit} />} />
           {target != null && (
             <ReferenceLine y={target} stroke="#475569" strokeDasharray="5 4" />
           )}
@@ -68,17 +95,47 @@ function CompareChart({ results, dataKey, label, unit = '%' }) {
               </span>
             )}
           />
-          {policies.map(p => (
-            <Line
-              key={p}
-              type="monotone"
-              dataKey={p}
-              stroke={POLICY_COLORS[p] ?? '#94a3b8'}
-              strokeWidth={2}
-              dot={false}
-              activeDot={{ r: 3 }}
-            />
-          ))}
+          {policies.flatMap(p => {
+            const color = POLICY_COLORS[p] ?? '#94a3b8'
+            return [
+              // Upper std band — dashed, semi-transparent
+              <Line
+                key={`${p}_upper`}
+                type="monotone"
+                dataKey={`${p}_upper`}
+                stroke={color}
+                strokeWidth={1}
+                strokeDasharray="3 2"
+                strokeOpacity={0.4}
+                dot={false}
+                activeDot={false}
+                legendType="none"
+              />,
+              // Lower std band — dashed, semi-transparent
+              <Line
+                key={`${p}_lower`}
+                type="monotone"
+                dataKey={`${p}_lower`}
+                stroke={color}
+                strokeWidth={1}
+                strokeDasharray="3 2"
+                strokeOpacity={0.4}
+                dot={false}
+                activeDot={false}
+                legendType="none"
+              />,
+              // Mean line — solid, thicker
+              <Line
+                key={p}
+                type="monotone"
+                dataKey={p}
+                stroke={color}
+                strokeWidth={2}
+                dot={false}
+                activeDot={{ r: 3 }}
+              />,
+            ]
+          })}
         </LineChart>
       </ResponsiveContainer>
     </div>
@@ -90,22 +147,28 @@ function CompareChart({ results, dataKey, label, unit = '%' }) {
 // ──────────────────────────────────────────────────────────────────────────────
 
 function SummaryTable({ results }) {
-  const sorted = Object.entries(results).sort((a, b) => b[1].total_reward - a[1].total_reward)
+  const sorted     = Object.entries(results).sort((a, b) => b[1].total_reward - a[1].total_reward)
+  const nEpisodes  = results[Object.keys(results)[0]]?.n_episodes ?? 1
 
-  const rewards   = sorted.map(([, d]) => d.total_reward)
-  const maxReward = Math.max(...rewards)
-  const minReward = Math.min(...rewards)
-  const range     = maxReward - minReward || 1
+  const rewards    = sorted.map(([, d]) => d.total_reward)
+  const maxReward  = Math.max(...rewards)
+  const minReward  = Math.min(...rewards)
+  const range      = maxReward - minReward || 1
 
   return (
     <div className="summary-table-wrapper">
-      <h3 className="section-label" style={{ marginBottom: 16 }}>Results Summary</h3>
+      <h3 className="section-label" style={{ marginBottom: 16 }}>
+        Results Summary
+        <span style={{ fontSize: 11, color: '#64748b', marginLeft: 8, fontWeight: 400 }}>
+          averaged over {nEpisodes} independent episodes
+        </span>
+      </h3>
       <table className="summary-table">
         <thead>
           <tr>
             <th>#</th>
             <th>Policy</th>
-            <th>Total Reward</th>
+            <th>Mean Reward ± Std</th>
             <th>vs. Taylor Rule</th>
             <th>Steps</th>
             <th>Performance</th>
@@ -132,6 +195,11 @@ function SummaryTable({ results }) {
                 </td>
                 <td className="reward-cell" style={{ color: POLICY_COLORS[pol] }}>
                   {data.total_reward.toFixed(1)}
+                  {data.total_reward_std != null && (
+                    <span style={{ color: '#64748b', fontSize: 11, marginLeft: 5 }}>
+                      ± {data.total_reward_std.toFixed(1)}
+                    </span>
+                  )}
                 </td>
                 <td className="vs-cell">
                   {vsTaylor != null ? (
@@ -177,9 +245,9 @@ export default function CompareView({ onCompare, isComparing, results, availPoli
         <div>
           <h2>Policy Comparison</h2>
           <p>
-            Runs <strong>PPO</strong>, <strong>DDPG</strong>, and <strong>Taylor Rule</strong> over
-            the <em>same</em> full 95-step episode and compares their macroeconomic
-            trajectories and total reward against the classical benchmark.
+            Runs <strong>PPO</strong>, <strong>DDPG</strong>, and <strong>Taylor Rule</strong>{' '}
+            over <strong>20 independent episodes</strong> (different random seeds). Charts show
+            the mean trajectory with ±1σ confidence bands — a statistically fair benchmark.
           </p>
         </div>
         <button className="btn btn-primary btn-large" onClick={onCompare} disabled={isComparing}>
@@ -191,7 +259,7 @@ export default function CompareView({ onCompare, isComparing, results, availPoli
       {isComparing && (
         <div className="loading-state">
           <div className="spinner" />
-          <p>Simulating policies… this takes a few seconds.</p>
+          <p>Simulating 20 episodes per policy… this takes a few seconds.</p>
         </div>
       )}
 

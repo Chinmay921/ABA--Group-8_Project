@@ -1,15 +1,21 @@
 """
 train.py — Train a PPO agent on the EconomicEnv.
 
-Usage:
+Usage (from project root):
     python train.py
 
 The script will:
-1. Load macroeconomic data from data/us_macro_data.csv
-2. Build the EconomicEnv
+1. Load macroeconomic data from data/us_macro_data_real.csv
+2. Build the EconomicEnv (with the full named-shock catalogue)
 3. Validate it against the Gymnasium API
-4. Train a PPO agent
-5. Save the trained model to models/ppo_economic_policy
+4. Train a PPO agent for TOTAL_TIMESTEPS
+5. Save the trained model  → models/ppo_economic_policy.zip
+6. Save VecNormalize stats → models/vec_normalize.pkl
+7. Evaluate 20 episodes and print mean ± std vs Taylor Rule / Random
+
+Re-run this script whenever the environment changes (e.g. after adding shock
+events) so the saved weights reflect the current transition dynamics.
+See train_ddpg.py for the equivalent DDPG training script.
 """
 
 import os
@@ -95,12 +101,16 @@ def random_policy(obs: np.ndarray) -> np.ndarray:
 
 def taylor_rule_policy(obs: np.ndarray) -> np.ndarray:
     """
-    Deterministic Taylor Rule baseline:
-        Δr = 0.5 × (π − 2.0) + 0.5 × (g − 0.25)
-    obs[0]=inflation, obs[2]=gdp_growth (stable in 6D obs space).
+    Augmented Taylor Rule (dual mandate, matches notebook definition):
+        Δr = 0.5*(π − 2.0) + 0.5*(g − 0.25) − 0.5*(u − 4.5)
+    obs[0]=inflation, obs[1]=unemployment, obs[2]=gdp_growth (6D obs space).
     Clipped to [-1, +1] to match the action space.
     """
-    rate_change = 0.5 * (float(obs[0]) - 2.0) + 0.5 * (float(obs[2]) - 0.25)
+    rate_change = (
+        0.5 * (float(obs[0]) - 2.0)
+        + 0.5 * (float(obs[2]) - 0.25)
+        - 0.5 * (float(obs[1]) - 4.5)
+    )
     return np.array([np.clip(rate_change, -1.0, 1.0)], dtype=np.float32)
 
 

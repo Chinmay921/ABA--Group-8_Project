@@ -142,8 +142,14 @@ def _get_action(policy: str, obs: np.ndarray) -> float:
         return float(np.random.uniform(-1.0, 1.0))
 
     if policy == "taylor":
-        # Augmented Taylor Rule: inflation gap + GDP gap
-        rc = 0.5 * (float(obs[0]) - 2.0) + 0.5 * (float(obs[2]) - 0.25)
+        # Augmented Taylor Rule (dual mandate, matches notebook definition):
+        #   Δr = 0.5*(π - 2.0) + 0.5*(g - 0.25) - 0.5*(u - 4.5)
+        # obs[0]=inflation, obs[1]=unemployment, obs[2]=gdp_growth
+        rc = (
+            0.5 * (float(obs[0]) - 2.0)
+            + 0.5 * (float(obs[2]) - 0.25)
+            - 0.5 * (float(obs[1]) - 4.5)
+        )
         return float(np.clip(rc, -1.0, 1.0))
 
     if policy == "ppo" and ppo_model is not None:
@@ -361,43 +367,83 @@ def run_full_episode(req: RunRequest):
     }
 
 
+N_COMPARE_EPISODES = 20   # number of independent episodes per policy in /api/compare
+
+# Macro keys for which we compute per-step mean/std bands
+_BAND_KEYS = ("inflation", "unemployment", "gdp_growth", "interest_rate")
+
+
 @app.post("/api/compare")
 def compare_all_policies():
-    """Run one full episode per policy and return all results for comparison."""
+    """
+    Run N_COMPARE_EPISODES independent episodes per policy (different random seeds).
+    Returns per-policy mean trajectory (with ±1 std bands) and mean/std total reward,
+    giving a statistically meaningful comparison rather than a cherry-picked single run.
+    """
     if df_global is None:
         raise HTTPException(status_code=500, detail="Data not loaded")
 
-    # Comparison only shows the three meaningful benchmarks; Random is excluded
-    # so the table stays focused on RL vs. the classical Taylor Rule.
-    policies = []
+    # Comparison shows PPO/DDPG (if loaded) + Taylor Rule; Random excluded.
+    policies: list[str] = []
     if ppo_model:  policies.append("ppo")
     if ddpg_model: policies.append("ddpg")
     policies.append("taylor")
 
     results = {}
+
     for pol in policies:
-        env = EconomicEnv(df_global)
-        obs, _ = env.reset(seed=42)
+        all_trajs: list[list[dict]] = []
+        ep_rewards: list[float]     = []
 
-        traj  = [_obs_to_point(obs, 0.0, 0.0, 0)]
-        total = 0.0
-        done  = False
-        step  = 0
+        for ep in range(N_COMPARE_EPISODES):
+            # Space seeds apart using a large prime so episodes are truly diverse
+            seed = 37 + ep * 1009
 
-        while not done:
-            action = _get_action(pol, obs)
-            obs, rew, terminated, truncated, _ = env.step(
-                np.array([action], dtype=np.float32)
-            )
-            done  = bool(terminated or truncated)
-            step += 1
-            total += float(rew)
-            traj.append(_obs_to_point(obs, action, float(rew), step))
+            env  = EconomicEnv(df_global)
+            obs, _ = env.reset(seed=seed)
 
+            traj  = [_obs_to_point(obs, 0.0, 0.0, 0)]
+            total = 0.0
+            done  = False
+            step  = 0
+
+            while not done:
+                action = _get_action(pol, obs)
+                obs, rew, terminated, truncated, _ = env.step(
+                    np.array([action], dtype=np.float32)
+                )
+                done  = bool(terminated or truncated)
+                step += 1
+                total += float(rew)
+                traj.append(_obs_to_point(obs, action, float(rew), step))
+
+            all_trajs.append(traj)
+            ep_rewards.append(total)
+
+        # Align episode lengths (all should be equal, but guard just in case)
+        min_len = min(len(t) for t in all_trajs)
+        all_trajs = [t[:min_len] for t in all_trajs]
+
+        # Build mean trajectory with ±1 std bands for each metric key
+        mean_traj: list[dict] = []
+        for i in range(min_len):
+            pt: dict = {"step": i}
+            for key in _BAND_KEYS:
+                vals = np.array([t[i][key] for t in all_trajs], dtype=np.float64)
+                mean = float(np.mean(vals))
+                std  = float(np.std(vals))
+                pt[key]             = round(mean, 4)
+                pt[f"{key}_upper"]  = round(mean + std, 4)
+                pt[f"{key}_lower"]  = round(mean - std, 4)
+            mean_traj.append(pt)
+
+        rewards_arr = np.array(ep_rewards, dtype=np.float64)
         results[pol] = {
-            "trajectory":   traj,
-            "total_reward": round(total, 2),
-            "steps":        step,
+            "trajectory":       mean_traj,
+            "total_reward":     round(float(rewards_arr.mean()), 2),
+            "total_reward_std": round(float(rewards_arr.std()),  2),
+            "steps":            min_len - 1,
+            "n_episodes":       N_COMPARE_EPISODES,
         }
 
     return results
