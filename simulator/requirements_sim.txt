@@ -1,0 +1,9 @@
+# simulator/requirements_sim.txt
+# Extra dependencies for the interactive simulator backend.
+# Install on top of the main requirements.txt:
+#
+#   pip install -r requirements.txt
+#   pip install -r simulator/requirements_sim.txt
+
+fastapi>=0.111.0
+uvicorn[standard]>=0.30.0

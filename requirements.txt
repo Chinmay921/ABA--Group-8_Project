@@ -1,0 +1,6 @@
+gymnasium==0.29.1
+stable-baselines3==2.3.2
+numpy>=1.26,<2.0
+pandas>=2.0
+torch>=2.2          # stable-baselines3 backend
+tensorboard>=2.14   # optional but recommended for training curves
