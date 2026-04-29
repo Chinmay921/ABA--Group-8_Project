@@ -106,16 +106,18 @@ function SummaryTable({ results }) {
             <th>#</th>
             <th>Policy</th>
             <th>Total Reward</th>
-            <th>vs. Random</th>
+            <th>vs. Taylor Rule</th>
             <th>Steps</th>
             <th>Performance</th>
           </tr>
         </thead>
         <tbody>
           {sorted.map(([pol, data], idx) => {
-            const randomReward = results['random']?.total_reward ?? null
-            const vsRandom = randomReward != null ? data.total_reward - randomReward : null
-            const barPct   = ((data.total_reward - minReward) / range) * 100
+            const taylorReward = results['taylor']?.total_reward ?? null
+            const vsTaylor = taylorReward != null && pol !== 'taylor'
+              ? data.total_reward - taylorReward
+              : null
+            const barPct = ((data.total_reward - minReward) / range) * 100
 
             return (
               <tr key={pol} className={idx === 0 ? 'best-row' : ''}>
@@ -132,9 +134,9 @@ function SummaryTable({ results }) {
                   {data.total_reward.toFixed(1)}
                 </td>
                 <td className="vs-cell">
-                  {vsRandom != null && pol !== 'random' ? (
-                    <span style={{ color: vsRandom > 0 ? '#00d4aa' : '#ff4757' }}>
-                      {vsRandom >= 0 ? '+' : ''}{vsRandom.toFixed(1)}
+                  {vsTaylor != null ? (
+                    <span style={{ color: vsTaylor > 0 ? '#00d4aa' : '#ff4757' }}>
+                      {vsTaylor >= 0 ? '+' : ''}{vsTaylor.toFixed(1)}
                     </span>
                   ) : '—'}
                 </td>
@@ -156,6 +158,7 @@ function SummaryTable({ results }) {
       <div className="table-note">
         All rewards are negative — <strong>closer to 0 is better</strong>.
         Reward = −(inflation_gap² + 0.5×unemployment_gap² + 0.5×GDP_gap² + 0.1×rate_change²).
+        "vs. Taylor Rule" shows how many reward points the RL agent gains over the classical benchmark.
       </div>
     </div>
   )
@@ -174,8 +177,9 @@ export default function CompareView({ onCompare, isComparing, results, availPoli
         <div>
           <h2>Policy Comparison</h2>
           <p>
-            Runs every available policy over the <em>same</em> full 95-step episode (seed = 42) and
-            compares their macroeconomic trajectories and total reward.
+            Runs <strong>PPO</strong>, <strong>DDPG</strong>, and <strong>Taylor Rule</strong> over
+            the <em>same</em> full 95-step episode and compares their macroeconomic
+            trajectories and total reward against the classical benchmark.
           </p>
         </div>
         <button className="btn btn-primary btn-large" onClick={onCompare} disabled={isComparing}>
@@ -211,20 +215,20 @@ export default function CompareView({ onCompare, isComparing, results, availPoli
           <div className="empty-icon">📊</div>
           <h2>Compare All Policies</h2>
           <p>
-            Click "Run All Policies" to execute each available agent in the same environment
-            and visualise the resulting macroeconomic trajectories side-by-side.
+            Click "Run All Policies" to run PPO, DDPG, and Taylor Rule in the same environment
+            and visualise their macroeconomic trajectories side-by-side.
           </p>
 
           <div className="policy-legend-preview">
-            {Object.entries(POLICY_LABELS).map(([key]) => {
-              if (!availPolicies[key]) return null
-              return (
-                <div key={key} className="legend-preview-item">
-                  <span className="policy-dot" style={{ background: POLICY_COLORS[key] }} />
-                  <span style={{ color: POLICY_COLORS[key] }}>{POLICY_LABELS[key]}</span>
-                </div>
-              )
-            })}
+            {['ppo', 'ddpg', 'taylor'].map(key => (
+              <div key={key} className="legend-preview-item" style={{ opacity: availPolicies[key] ? 1 : 0.4 }}>
+                <span className="policy-dot" style={{ background: POLICY_COLORS[key] }} />
+                <span style={{ color: POLICY_COLORS[key] }}>{POLICY_LABELS[key]}</span>
+                {!availPolicies[key] && (
+                  <span style={{ fontSize: 10, color: '#64748b', marginLeft: 4 }}>(model not loaded)</span>
+                )}
+              </div>
+            ))}
           </div>
         </div>
       )}

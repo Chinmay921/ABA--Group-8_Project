@@ -367,10 +367,12 @@ def compare_all_policies():
     if df_global is None:
         raise HTTPException(status_code=500, detail="Data not loaded")
 
+    # Comparison only shows the three meaningful benchmarks; Random is excluded
+    # so the table stays focused on RL vs. the classical Taylor Rule.
     policies = []
-    if ppo_model:   policies.append("ppo")
-    if ddpg_model:  policies.append("ddpg")
-    policies += ["taylor", "random"]
+    if ppo_model:  policies.append("ppo")
+    if ddpg_model: policies.append("ddpg")
+    policies.append("taylor")
 
     results = {}
     for pol in policies:
